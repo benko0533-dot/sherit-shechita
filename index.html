@@ -67,6 +67,18 @@
     <div id="lErr" class="errors hidden"></div>
   </section>
 
+  <!-- שינוי קוד -->
+  <section id="codeBox" class="card hidden">
+    <h3>שינוי הקוד האישי</h3>
+    <label>קוד חדש (4–8 ספרות)</label>
+    <input id="nc1" type="password" inputmode="numeric" autocomplete="new-password">
+    <label>שוב את הקוד החדש</label>
+    <input id="nc2" type="password" inputmode="numeric" autocomplete="new-password">
+    <button id="ncBtn" onclick="saveCode()">שמור קוד חדש</button>
+    <button class="btn light" onclick="$('codeBox').classList.add('hidden')">ביטול</button>
+    <div id="ncMsg" class="errors hidden"></div>
+  </section>
+
   <!-- לשוניות למנהל -->
   <div id="tabs" class="tabs hidden">
     <button id="tEntry" class="on" onclick="showTab('entry')">הזנה</button>
@@ -170,7 +182,7 @@ function doLogin() {
       USER = { name: r.name, code: code, manager: !!r.manager };
       $('tabs').classList.toggle('hidden', !USER.manager);
       try { localStorage.setItem('shechita_user', JSON.stringify(USER)); } catch (e) {}
-      $('who').innerHTML = esc(USER.name) + ' <a href="#" onclick="logout();return false">החלף</a>';
+      $('who').innerHTML = esc(USER.name) + ' <a href="#" onclick="showCode();return false">שינוי קוד</a> <a href="#" onclick="logout();return false">יציאה</a>';
       $('login').classList.add('hidden');
       $('lBtn').disabled = false;
       newEntry();
@@ -185,7 +197,7 @@ function doLogin() {
 function logout() {
   try { localStorage.removeItem('shechita_user'); } catch (e) {}
   USER = null; $('who').textContent = ''; $('lName').value = ''; $('lCode').value = '';
-  ['form', 'done', 'sum', 'tabs'].forEach(id => $(id).classList.add('hidden'));
+  ['form', 'done', 'sum', 'tabs', 'codeBox'].forEach(id => $(id).classList.add('hidden'));
   $('login').classList.remove('hidden');
 }
 
@@ -347,6 +359,27 @@ function loadSummary() {
       ).join('');
     })
     .catch(e => { $('sumTop').innerHTML = '<div class="errors">' + esc(e.message || e) + '</div>'; });
+}
+
+function showCode() {
+  $('nc1').value = ''; $('nc2').value = ''; $('ncMsg').className = 'errors hidden';
+  $('codeBox').classList.remove('hidden'); window.scrollTo(0, 0);
+}
+
+function saveCode() {
+  const a = $('nc1').value.trim(), b = $('nc2').value.trim();
+  if (!/^\d{4,8}$/.test(a)) return showErr('ncMsg', ['הקוד צריך להיות 4 עד 8 ספרות']);
+  if (a !== b) return showErr('ncMsg', ['שני הקודים לא זהים']);
+  $('ncBtn').disabled = true;
+  call('changeCode', { name: USER.name, code: USER.code, newCode: a })
+    .then(() => {
+      USER.code = a;
+      try { localStorage.setItem('shechita_user', JSON.stringify(USER)); } catch (e) {}
+      $('ncBtn').disabled = false;
+      $('ncMsg').className = 'status ok'; $('ncMsg').textContent = '✔ הקוד הוחלף. מהיום נכנסים עם הקוד החדש.';
+      setTimeout(() => { $('codeBox').classList.add('hidden'); $('ncMsg').className = 'errors hidden'; }, 2500);
+    })
+    .catch(e => { $('ncBtn').disabled = false; showErr('ncMsg', [e.message || e]); });
 }
 
 function showErr(id, list) {
