@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>הזנת שחיטה</title>
+<meta name="theme-color" content="#1f6f43">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="הזנת שחיטה">
+<link rel="manifest" href="manifest.json">
+<style>
+  :root { --main:#1f6f43; --bg:#f4f6f5; --err:#c0392b; --ok:#1e8449; --line:#dfe4e2; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:Arial, "Segoe UI", sans-serif; background:var(--bg); color:#222; font-size:17px; }
+  header { background:var(--main); color:#fff; padding:14px 16px; font-size:20px; font-weight:bold; display:flex; justify-content:space-between; align-items:center; }
+  header small { font-size:14px; font-weight:normal; }
+  header a { color:#fff; font-size:13px; margin-right:8px; }
+  main { max-width:520px; margin:0 auto; padding:16px; }
+  .card { background:#fff; border-radius:12px; padding:16px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .hidden { display:none !important; }
+  label { display:block; font-size:14px; color:#555; margin:10px 0 4px; }
+  input, select, textarea { width:100%; padding:12px; font-size:18px; border:1px solid #c9d1ce; border-radius:8px; background:#fff; }
+  textarea { min-height:60px; font-size:16px; }
+  .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .grid3 label { margin-top:4px; }
+  h3 { margin:0 0 6px; font-size:17px; color:var(--main); }
+  .sub { font-size:14px; color:#666; }
+  .status { margin-top:8px; font-size:14px; font-weight:bold; }
+  .status.ok { color:var(--ok); } .status.bad { color:var(--err); }
+  button, .btn { display:block; width:100%; padding:14px; font-size:18px; font-weight:bold; border:0; border-radius:10px; background:var(--main); color:#fff; cursor:pointer; text-align:center; text-decoration:none; margin-top:10px; }
+  button:disabled { opacity:.5; }
+  .btn.wa { background:#25d366; }
+  .btn.light { background:#e8eeeb; color:#222; }
+  .errors { background:#fdecea; color:var(--err); border-radius:8px; padding:10px 14px; margin-top:10px; font-size:15px; }
+  .errors ul { margin:0; padding-right:18px; }
+  pre { white-space:pre-wrap; background:#f7f7f7; border-radius:8px; padding:12px; font-family:inherit; font-size:15px; margin:0; }
+  .loading { text-align:center; padding:40px; color:#666; }
+</style>
+</head>
+<body>
+<header>🐄 הזנת שחיטה <small id="who"></small></header>
+<main>
+  <div id="loading" class="loading">טוען…</div>
+
+  <!-- כניסה -->
+  <section id="login" class="card hidden">
+    <label>שם משגיח</label>
+    <select id="lName"></select>
+    <label>קוד אישי</label>
+    <input id="lCode" type="password" inputmode="numeric" autocomplete="off">
+    <button id="lBtn" onclick="doLogin()">כניסה</button>
+    <div id="lErr" class="errors hidden"></div>
+  </section>
+
+  <!-- הזנה -->
+  <section id="form" class="hidden">
+    <div class="card">
+      <label>תאריך</label>
+      <input id="fDate" type="date">
+      <label>כמות בהמות (סה"כ היום)</label>
+      <input id="fTotal" type="number" inputmode="numeric" min="0" oninput="render()">
+      <div id="capNote" class="sub"></div>
+    </div>
+    <div id="sections"></div>
+    <div id="animalsCard" class="card hidden">
+      <h3>פירוט לפי סוג בהמה</h3>
+      <div id="animals" class="grid3"></div>
+      <div id="aStatus" class="status"></div>
+    </div>
+    <div class="card">
+      <label>הערות</label>
+      <textarea id="fNotes"></textarea>
+      <div id="fErr" class="errors hidden"></div>
+      <button id="saveBtn" onclick="save(false)">שמור</button>
+    </div>
+  </section>
+
+  <!-- אחרי שמירה -->
+  <section id="done" class="card hidden">
+    <h3>✔ נשמר בהצלחה</h3>
+    <pre id="msg"></pre>
+    <div id="waBtns"></div>
+    <button class="btn light" onclick="newEntry()">הזנה חדשה</button>
+  </section>
+</main>
+
+<script>
+let CFG = null, USER = null;
+const API = 'https://script.google.com/macros/s/AKfycbwFabV8C2x5SqPc3-6X6iqbTB6t26yhUxtoH41sOFEiD4o1ES1HJR7TTaqjwJjhr8s/exec';
+// קריאה לשרת (Apps Script) דרך fetch – עובד בכל דפדפן, בלי תלות בחשבון Google
+function call(action, payload) {
+  return fetch(API, { method: 'POST', body: JSON.stringify({ action: action, payload: payload || {} }) })
+    .then(r => r.json())
+    .then(r => { if (r.error) throw new Error(r.error); return r.result; });
+}
+const $ = id => document.getElementById(id);
+const n = v => { const x = Number(v); return isNaN(x) ? 0 : x; };
+
+call('getConfig').then(init).catch(fatal);
+
+function fatal(e) { $('loading').textContent = 'שגיאה: ' + (e.message || e); }
+
+function init(cfg) {
+  CFG = cfg;
+  $('loading').classList.add('hidden');
+  $('lName').innerHTML = cfg.users.map(u => '<option>' + esc(u) + '</option>').join('');
+  $('capNote').textContent = 'מכסה יומית: ' + cfg.cap + ' (מעבר לכך נפתחת שורת המשך)';
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem('shechita_user') || 'null'); } catch (e) {}
+  if (saved && cfg.users.indexOf(saved.name) >= 0) {
+    $('lName').value = saved.name; $('lCode').value = saved.code; doLogin();
+  } else {
+    $('login').classList.remove('hidden');
+  }
+}
+
+function doLogin() {
+  const name = $('lName').value, code = $('lCode').value;
+  $('lBtn').disabled = true; $('lErr').classList.add('hidden');
+  call('login', { name: name, code: code })
+    .then(() => {
+      USER = { name: name, code: code };
+      try { localStorage.setItem('shechita_user', JSON.stringify(USER)); } catch (e) {}
+      $('who').innerHTML = esc(name) + ' <a href="#" onclick="logout();return false">החלף</a>';
+      $('login').classList.add('hidden');
+      $('lBtn').disabled = false;
+      newEntry();
+    })
+    .catch(e => {
+      $('lBtn').disabled = false;
+      $('login').classList.remove('hidden');
+      showErr('lErr', [e.message || e]);
+    });
+}
+
+function logout() {
+  try { localStorage.removeItem('shechita_user'); } catch (e) {}
+  USER = null; $('who').textContent = ''; $('lCode').value = '';
+  ['form', 'done'].forEach(id => $(id).classList.add('hidden'));
+  $('login').classList.remove('hidden');
+}
+
+function newEntry() {
+  $('fDate').value = CFG.today;
+  $('fTotal').value = ''; $('fNotes').value = '';
+  $('sections').innerHTML = ''; $('animals').innerHTML = '';
+  $('fErr').classList.add('hidden');
+  $('done').classList.add('hidden');
+  $('form').classList.remove('hidden');
+  render();
+  window.scrollTo(0, 0);
+}
+
+function counts() {
+  const t = Math.floor(n($('fTotal').value));
+  if (t <= 0) return [];
+  return t > CFG.cap ? [CFG.cap, t - CFG.cap] : [t];
+}
+
+function render() {
+  // שמירת ערכים קיימים
+  const keep = {};
+  document.querySelectorAll('#form input[data-k]').forEach(i => keep[i.dataset.k] = i.value);
+
+  const cs = counts();
+  $('sections').innerHTML = cs.map((c, i) => {
+    const showCh = i === 0 || CFG.chalakInOverflow;
+    const f = (k, lbl) => '<div><label>' + lbl + '</label><input type="number" inputmode="numeric" min="0" data-k="r' + i + '_' + k + '" oninput="check()"></div>';
+    return '<div class="card"><h3>' + (i === 0 ? 'שורה ראשית' : 'שורת המשך (מעל המכסה)') +
+      ' – ' + c + ' בהמות</h3><div class="grid3">' +
+      (showCh ? f('chalak', 'חלק') : '') + f('kasher', 'כשר') + f('taref', 'טרף') +
+      '</div><div class="status" id="st' + i + '"></div></div>';
+  }).join('');
+
+  $('animalsCard').classList.toggle('hidden', cs.length === 0);
+  $('animals').innerHTML = CFG.animals.map((a, i) =>
+    '<div><label>' + esc(a.split('-')[0]) + '</label><input type="number" inputmode="numeric" min="0" data-k="a' + i + '" oninput="check()"></div>'
+  ).join('');
+
+  document.querySelectorAll('#form input[data-k]').forEach(i => { if (keep[i.dataset.k] != null) i.value = keep[i.dataset.k]; });
+  check();
+}
+
+function val(k) { const el = document.querySelector('[data-k="' + k + '"]'); return el ? n(el.value) : 0; }
+
+function check() {
+  const cs = counts(), errs = [];
+  cs.forEach((c, i) => {
+    const sum = val('r' + i + '_chalak') + val('r' + i + '_kasher') + val('r' + i + '_taref');
+    const st = $('st' + i);
+    const ok = sum === c;
+    st.className = 'status ' + (ok ? 'ok' : 'bad');
+    st.textContent = ok ? '✔ תואם' : 'הוזנו ' + sum + ' מתוך ' + c + (sum < c ? ' (חסר ' + (c - sum) + ')' : ' (עודף ' + (sum - c) + ')');
+    if (!ok) errs.push(1);
+  });
+  if (cs.length) {
+    const total = cs.reduce((a, b) => a + b, 0);
+    const aSum = CFG.animals.reduce((t, a, i) => t + val('a' + i), 0);
+    const need = CFG.requireBreakdown || aSum > 0;
+    const ok = !need || aSum === total;
+    $('aStatus').className = 'status ' + (ok ? 'ok' : 'bad');
+    $('aStatus').textContent = !need ? '' : (ok ? '✔ תואם' : 'הוזנו ' + aSum + ' מתוך ' + total);
+  }
+  return errs.length === 0;
+}
+
+function collect(force) {
+  const cs = counts(), animals = {};
+  CFG.animals.forEach((a, i) => animals[a] = val('a' + i));
+  return {
+    name: USER.name, code: USER.code, force: force,
+    date: $('fDate').value, total: Math.floor(n($('fTotal').value)),
+    rows: cs.map((c, i) => ({ chalak: val('r' + i + '_chalak'), kasher: val('r' + i + '_kasher'), taref: val('r' + i + '_taref') })),
+    animals: animals, notes: $('fNotes').value.trim()
+  };
+}
+
+function save(force) {
+  $('fErr').classList.add('hidden');
+  if (!$('fDate').value || !counts().length) return showErr('fErr', ['יש למלא תאריך וכמות']);
+  $('saveBtn').disabled = true; $('saveBtn').textContent = 'שומר…';
+  call('saveEntry', collect(force))
+    .then(res => {
+      $('saveBtn').disabled = false; $('saveBtn').textContent = 'שמור';
+      if (res.duplicate) {
+        if (confirm('לתאריך זה כבר קיימת הזנה. להוסיף בכל זאת?')) save(true);
+        return;
+      }
+      if (!res.ok) return showErr('fErr', res.errors);
+      $('msg').textContent = res.message;
+      $('waBtns').innerHTML = res.managers.map(m =>
+        '<a class="btn wa" target="_blank" href="' + m.url + '">📲 שלח ל' + esc(m.name) + '</a>').join('');
+      $('form').classList.add('hidden');
+      $('done').classList.remove('hidden');
+      window.scrollTo(0, 0);
+    })
+    .catch(e => {
+      $('saveBtn').disabled = false; $('saveBtn').textContent = 'שמור';
+      showErr('fErr', [e.message || e]);
+    });
+}
+
+function showErr(id, list) {
+  $(id).innerHTML = '<ul>' + list.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>';
+  $(id).classList.remove('hidden');
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+</script>
+</body>
+</html>
