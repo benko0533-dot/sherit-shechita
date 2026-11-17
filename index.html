@@ -89,9 +89,14 @@
 let CFG = null, USER = null;
 const API = 'https://script.google.com/macros/s/AKfycbwFabV8C2x5SqPc3-6X6iqbTB6t26yhUxtoH41sOFEiD4o1ES1HJR7TTaqjwJjhr8s/exec';
 // קריאה לשרת (Apps Script) דרך fetch – עובד בכל דפדפן, בלי תלות בחשבון Google
-function call(action, payload) {
+// בעיית רשת (למשל טעינה ראשונה איטית) – מנסים שוב עד 3 פעמים (לא בשמירה, כדי לא לשמור פעמיים)
+function call(action, payload, tries) {
+  tries = tries || 0;
   return fetch(API, { method: 'POST', body: JSON.stringify({ action: action, payload: payload || {} }) })
-    .then(r => r.json())
+    .then(r => r.json(), e => {
+      if (tries < 2 && action !== 'saveEntry') return new Promise(ok => setTimeout(ok, 1500)).then(() => call(action, payload, tries + 1)).then(res => ({ result: res }));
+      throw new Error('אין חיבור לשרת. בדוק אינטרנט ונסה שוב.');
+    })
     .then(r => { if (r.error) throw new Error(r.error); return r.result; });
 }
 const $ = id => document.getElementById(id);
