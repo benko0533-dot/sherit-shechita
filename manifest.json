@@ -1,0 +1,10 @@
+{
+  "name": "הזנת שחיטה",
+  "short_name": "שחיטה",
+  "start_url": ".",
+  "display": "standalone",
+  "dir": "rtl",
+  "lang": "he",
+  "background_color": "#f4f6f5",
+  "theme_color": "#1f6f43"
+}
