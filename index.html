@@ -36,6 +36,16 @@
   .errors ul { margin:0; padding-right:18px; }
   pre { white-space:pre-wrap; background:#f7f7f7; border-radius:8px; padding:12px; font-family:inherit; font-size:15px; margin:0; }
   .loading { text-align:center; padding:40px; color:#666; }
+  .tabs { display:flex; gap:8px; margin-bottom:14px; }
+  .tabs button { margin:0; padding:10px; font-size:16px; background:#e8eeeb; color:#222; }
+  .tabs button.on { background:var(--main); color:#fff; }
+  .day h3 { display:flex; justify-content:space-between; }
+  .day .by { font-size:13px; color:#888; font-weight:normal; }
+  .nums { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; text-align:center; margin:8px 0; }
+  .nums div { background:#f4f6f5; border-radius:8px; padding:8px 2px; }
+  .nums b { display:block; font-size:19px; }
+  .nums span { font-size:12px; color:#666; }
+  .btn.wa.small { padding:10px; font-size:15px; }
 </style>
 </head>
 <body>
@@ -51,6 +61,18 @@
     <input id="lCode" type="password" inputmode="numeric" autocomplete="off">
     <button id="lBtn" onclick="doLogin()">כניסה</button>
     <div id="lErr" class="errors hidden"></div>
+  </section>
+
+  <!-- לשוניות למנהל -->
+  <div id="tabs" class="tabs hidden">
+    <button id="tEntry" class="on" onclick="showTab('entry')">הזנה</button>
+    <button id="tSum" onclick="showTab('sum')">תמונת מצב</button>
+  </div>
+
+  <!-- תמונת מצב (מנהל) -->
+  <section id="sum" class="hidden">
+    <div class="card" id="sumTop"></div>
+    <div id="sumDays"></div>
   </section>
 
   <!-- הזנה -->
@@ -125,7 +147,8 @@ function doLogin() {
   $('lBtn').disabled = true; $('lErr').classList.add('hidden');
   call('login', { name: name, code: code })
     .then(r => {
-      USER = { name: r.name, code: code };
+      USER = { name: r.name, code: code, manager: !!r.manager };
+      $('tabs').classList.toggle('hidden', !USER.manager);
       try { localStorage.setItem('shechita_user', JSON.stringify(USER)); } catch (e) {}
       $('who').innerHTML = esc(USER.name) + ' <a href="#" onclick="logout();return false">החלף</a>';
       $('login').classList.add('hidden');
@@ -142,7 +165,7 @@ function doLogin() {
 function logout() {
   try { localStorage.removeItem('shechita_user'); } catch (e) {}
   USER = null; $('who').textContent = ''; $('lName').value = ''; $('lCode').value = '';
-  ['form', 'done'].forEach(id => $(id).classList.add('hidden'));
+  ['form', 'done', 'sum', 'tabs'].forEach(id => $(id).classList.add('hidden'));
   $('login').classList.remove('hidden');
 }
 
@@ -152,7 +175,9 @@ function newEntry() {
   $('sections').innerHTML = ''; $('animals').innerHTML = '';
   $('fErr').classList.add('hidden');
   $('done').classList.add('hidden');
+  $('sum').classList.add('hidden');
   $('form').classList.remove('hidden');
+  $('tEntry').classList.add('on'); $('tSum').classList.remove('on');
   render();
   window.scrollTo(0, 0);
 }
@@ -244,6 +269,42 @@ function save(force) {
       $('saveBtn').disabled = false; $('saveBtn').textContent = 'שמור';
       showErr('fErr', [e.message || e]);
     });
+}
+
+function showTab(t) {
+  $('tEntry').classList.toggle('on', t === 'entry');
+  $('tSum').classList.toggle('on', t === 'sum');
+  if (t === 'entry') { $('sum').classList.add('hidden'); if ($('done').classList.contains('hidden')) $('form').classList.remove('hidden'); return; }
+  $('form').classList.add('hidden'); $('done').classList.add('hidden'); $('sum').classList.remove('hidden');
+  loadSummary();
+}
+
+function pc(x, t) { return t ? Math.round(x / t * 100) + '%' : ''; }
+
+function loadSummary() {
+  $('sumTop').innerHTML = '<div class="loading">טוען…</div>'; $('sumDays').innerHTML = '';
+  call('getSummary', { name: USER.name, code: USER.code, limit: 30 })
+    .then(r => {
+      const d = r.days;
+      if (!d.length) { $('sumTop').innerHTML = '<h3>עדיין אין הזנות</h3>'; return; }
+      const w = d.slice(0, 7), T = k => w.reduce((t, x) => t + x[k], 0), tot = T('total');
+      $('sumTop').innerHTML = '<h3>' + w.length + ' ימי השחיטה האחרונים</h3>' +
+        '<div class="nums"><div><b>' + tot + '</b><span>סה"כ</span></div>' +
+        '<div><b>' + pc(T('chalak'), tot) + '</b><span>חלק</span></div>' +
+        '<div><b>' + pc(T('kasher'), tot) + '</b><span>כשר</span></div>' +
+        '<div><b>' + pc(T('taref'), tot) + '</b><span>טרף</span></div></div>';
+      $('sumDays').innerHTML = d.map(x =>
+        '<div class="card day"><h3>' + x.date + ' <span class="by">' + esc(x.user) + '</span></h3>' +
+        '<div class="nums"><div><b>' + x.total + '</b><span>' + (x.parts.length > 1 ? x.parts.join('+') : 'סה"כ') + '</span></div>' +
+        '<div><b>' + x.chalak + '</b><span>חלק ' + pc(x.chalak, x.total) + '</span></div>' +
+        '<div><b>' + x.kasher + '</b><span>כשר ' + pc(x.kasher, x.total) + '</span></div>' +
+        '<div><b>' + x.taref + '</b><span>טרף ' + pc(x.taref, x.total) + '</span></div></div>' +
+        '<div class="sub">' + Object.keys(x.animals).map(a => esc(a) + ' ' + x.animals[a]).join(' | ') +
+        (x.notes && x.notes !== '-' ? ' · הערות: ' + esc(x.notes) : '') + '</div>' +
+        '<a class="btn wa small" target="_blank" href="' + x.wa + '">📲 שלח סיכום בוואטסאפ</a></div>'
+      ).join('');
+    })
+    .catch(e => { $('sumTop').innerHTML = '<div class="errors">' + esc(e.message || e) + '</div>'; });
 }
 
 function showErr(id, list) {
