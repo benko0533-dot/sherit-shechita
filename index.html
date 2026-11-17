@@ -45,8 +45,8 @@
 
   <!-- כניסה -->
   <section id="login" class="card hidden">
-    <label>שם משגיח</label>
-    <select id="lName"></select>
+    <label>שם משתמש או מייל</label>
+    <input id="lName" type="text" autocomplete="username" placeholder="כפי שרשום אצל המנהל">
     <label>קוד אישי</label>
     <input id="lCode" type="password" inputmode="numeric" autocomplete="off">
     <button id="lBtn" onclick="doLogin()">כניסה</button>
@@ -109,11 +109,10 @@ function fatal(e) { $('loading').textContent = 'שגיאה: ' + (e.message || e)
 function init(cfg) {
   CFG = cfg;
   $('loading').classList.add('hidden');
-  $('lName').innerHTML = cfg.users.map(u => '<option>' + esc(u) + '</option>').join('');
   $('capNote').textContent = 'מכסה יומית: ' + cfg.cap + ' (מעבר לכך נפתחת שורת המשך)';
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem('shechita_user') || 'null'); } catch (e) {}
-  if (saved && cfg.users.indexOf(saved.name) >= 0) {
+  if (saved && saved.name && saved.code) {
     $('lName').value = saved.name; $('lCode').value = saved.code; doLogin();
   } else {
     $('login').classList.remove('hidden');
@@ -121,13 +120,14 @@ function init(cfg) {
 }
 
 function doLogin() {
-  const name = $('lName').value, code = $('lCode').value;
+  const name = $('lName').value.trim(), code = $('lCode').value.trim();
+  if (!name || !code) { showErr('lErr', ['יש למלא שם משתמש וקוד']); $('login').classList.remove('hidden'); return; }
   $('lBtn').disabled = true; $('lErr').classList.add('hidden');
   call('login', { name: name, code: code })
-    .then(() => {
-      USER = { name: name, code: code };
+    .then(r => {
+      USER = { name: r.name, code: code };
       try { localStorage.setItem('shechita_user', JSON.stringify(USER)); } catch (e) {}
-      $('who').innerHTML = esc(name) + ' <a href="#" onclick="logout();return false">החלף</a>';
+      $('who').innerHTML = esc(USER.name) + ' <a href="#" onclick="logout();return false">החלף</a>';
       $('login').classList.add('hidden');
       $('lBtn').disabled = false;
       newEntry();
@@ -141,7 +141,7 @@ function doLogin() {
 
 function logout() {
   try { localStorage.removeItem('shechita_user'); } catch (e) {}
-  USER = null; $('who').textContent = ''; $('lCode').value = '';
+  USER = null; $('who').textContent = ''; $('lName').value = ''; $('lCode').value = '';
   ['form', 'done'].forEach(id => $(id).classList.add('hidden'));
   $('login').classList.remove('hidden');
 }
